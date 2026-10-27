@@ -362,6 +362,8 @@ func scanLocalVolume(vol models.Volume, db *gorm.DB, tlog *logrus.Entry) {
 				fl.Size = fStat.Size()
 				fl.HasHeatmap = false
 				fl.VideoDuration = 0.0
+				fl.ScriptAPM = 0
+				fl.ScriptSpeed = 0
 			}
 
 			if fl.VideoDuration < 0.01 {

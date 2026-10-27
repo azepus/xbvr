@@ -847,6 +847,26 @@ func Migrate(migrateTo string) {
 				return tx.AutoMigrate(File{}).Error
 			},
 		},
+		{
+			ID: "0088-script-apm",
+			Migrate: func(tx *gorm.DB) error {
+				err := tx.AutoMigrate(&models.File{}).Error
+				if err != nil {
+					return err
+				}
+				return tx.AutoMigrate(&models.Scene{}).Error
+			},
+		},
+		{
+			ID: "0089-script-speed",
+			Migrate: func(tx *gorm.DB) error {
+				err := tx.AutoMigrate(&models.File{}).Error
+				if err != nil {
+					return err
+				}
+				return tx.AutoMigrate(&models.Scene{}).Error
+			},
+		},
 
 		// ===============================================================================================
 		// Put DB Schema migrations above this line and migrations that rely on the updated schema below

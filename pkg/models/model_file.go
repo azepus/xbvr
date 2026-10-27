@@ -43,6 +43,8 @@ type File struct {
 	IsSelectedScript    bool `json:"is_selected_script" xbvrbackup:"is_selected_script"`
 	IsExported          bool `json:"is_exported" xbvrbackup:"-"`
 	RefreshHeatmapCache bool `json:"refresh_heatmap_cache" xbvrbackup:"-"`
+	ScriptAPM           int  `json:"script_apm" xbvrbackup:"script_apm"`
+	ScriptSpeed         int  `json:"script_speed" xbvrbackup:"script_speed"`
 }
 
 func (f *File) GetPath() string {

@@ -454,7 +454,7 @@ func ScrapeTPDB(apiToken string, sceneUrl string) {
 		err := scrape.ScrapeTPDB(knownScenes, &collectedScenes, apiToken, sceneUrl)
 
 		if err != nil {
-			tlog.Errorf(err.Error())
+			tlog.Error(err)
 		} else if len(collectedScenes) > 0 {
 			// At this point we know the API Token is correct, so we will save
 			// it to the config store

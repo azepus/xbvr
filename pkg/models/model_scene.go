@@ -88,6 +88,8 @@ type Scene struct {
 	IsAccessible   bool            `json:"is_accessible" gorm:"default:false" xbvrbackup:"-"`
 	IsWatched      bool            `json:"is_watched" gorm:"default:false" xbvrbackup:"is_watched"`
 	IsScripted     bool            `json:"is_scripted" gorm:"default:false" xbvrbackup:"-"`
+	ScriptAPM      int             `json:"script_apm" gorm:"default:0" xbvrbackup:"script_apm"`
+	ScriptSpeed    int             `json:"script_speed" gorm:"default:0" xbvrbackup:"script_speed"`
 	Cuepoints      []SceneCuepoint `json:"cuepoints" xbvrbackup:"-"`
 	History        []History       `json:"history" xbvrbackup:"-"`
 	AddedDate      time.Time       `json:"added_date" xbvrbackup:"added_date"`
@@ -350,6 +352,23 @@ func (o *Scene) UpdateStatus() {
 			changed = true
 		}
 
+		if scripts > 0 {
+			scriptFiles, err := o.GetScriptFiles()
+			if err == nil && len(scriptFiles) > 0 {
+				if o.ScriptAPM != scriptFiles[0].ScriptAPM || o.ScriptSpeed != scriptFiles[0].ScriptSpeed {
+					o.ScriptAPM = scriptFiles[0].ScriptAPM
+					o.ScriptSpeed = scriptFiles[0].ScriptSpeed
+					changed = true
+				}
+			}
+		}
+
+		if scripts == 0 && (o.ScriptAPM != 0 || o.ScriptSpeed != 0) {
+			o.ScriptAPM = 0
+			o.ScriptSpeed = 0
+			changed = true
+		}
+
 		if scripts == 0 && o.IsScripted {
 			o.IsScripted = false
 			changed = true
@@ -388,6 +407,12 @@ func (o *Scene) UpdateStatus() {
 
 		if o.IsAccessible {
 			o.IsAccessible = false
+			changed = true
+		}
+
+		if o.ScriptAPM != 0 || o.ScriptSpeed != 0 {
+			o.ScriptAPM = 0
+			o.ScriptSpeed = 0
 			changed = true
 		}
 

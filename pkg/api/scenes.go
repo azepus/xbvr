@@ -867,6 +867,9 @@ func (i SceneResource) selectScript(req *restful.Request, resp *restful.Response
 			for _, file := range files {
 				if file.ID == r.FileID && !file.IsSelectedScript {
 					file.IsSelectedScript = true
+					scene.ScriptAPM = file.ScriptAPM
+					scene.ScriptSpeed = file.ScriptSpeed
+					scene.Save()
 					file.Save()
 				} else if file.ID != r.FileID && file.IsSelectedScript {
 					file.IsSelectedScript = false

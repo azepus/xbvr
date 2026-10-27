@@ -219,6 +219,9 @@ func StartServer(version, commit, branch, date string) {
 	// Cron
 	SetupCron()
 
+	// Generate heatmaps and calculate APM
+	go tasks.GenerateHeatmaps(nil)
+
 	// List binding addresses
 	addrs, _ := net.InterfaceAddrs()
 	ips := []string{}

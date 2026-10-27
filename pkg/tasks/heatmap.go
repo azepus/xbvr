@@ -63,7 +63,7 @@ func GenerateHeatmaps(tlog *logrus.Entry) {
 		defer db.Close()
 
 		var scriptfiles []models.File
-		db.Model(&models.File{}).Preload("Volume").Where("type = ?", "script").Where("has_heatmap = ?", false).Find(&scriptfiles)
+		db.Model(&models.File{}).Preload("Volume").Where("type = ?", "script").Where("has_heatmap = ? OR script_speed = ? OR script_speed IS NULL OR script_apm = ? OR script_apm IS NULL", false, 0, 0).Find(&scriptfiles)
 
 		for i, file := range scriptfiles {
 			if tlog != nil && (i%50) == 0 {
@@ -72,24 +72,64 @@ func GenerateHeatmaps(tlog *logrus.Entry) {
 			if file.Exists() {
 				path := file.GetPath()
 				if strings.HasSuffix(path, ".funscript") {
-					log.Infof("Rendering %v", file.Filename)
-					destFile := filepath.Join(common.ScriptHeatmapDir, fmt.Sprintf("heatmap-%d.png", file.ID))
-					err := RenderHeatmap(
-						path,
-						destFile,
-						1000,
-						10,
-						250,
-					)
-					if err == nil {
-						file.HasHeatmap = true
-						file.RefreshHeatmapCache = true
-						file.Save()
+					funscript, err := LoadFunscriptData(path)
+					speed := 0
+					if err != nil {
+						log.Warnf("Could not load funscript data for %s: %v", file.Filename, err)
 					} else {
-						log.Warn(err)
+						if funscript.IsFunscriptToken() {
+							log.Warnf("Funscript is a token: %s - speed set to 0", file.Filename)
+						} else {
+							speed = funscript.CalculateSpeed()
+						}
+					}
+					file.ScriptSpeed = speed
+					file.ScriptAPM = speed
+
+					if !file.HasHeatmap {
+						log.Infof("Rendering %v", file.Filename)
+						destFile := filepath.Join(common.ScriptHeatmapDir, fmt.Sprintf("heatmap-%d.png", file.ID))
+						err := RenderHeatmap(
+							path,
+							destFile,
+							1000,
+							10,
+							250,
+						)
+						if err == nil {
+							file.HasHeatmap = true
+							file.RefreshHeatmapCache = true
+						} else {
+							log.Warn(err)
+						}
+					}
+					file.Save()
+
+					// Propagate ScriptSpeed to scene if this file is the primary script
+					if file.SceneID != 0 {
+						var scene models.Scene
+						if err := scene.GetIfExistByPK(file.SceneID); err == nil {
+							scripts, err := scene.GetScriptFiles()
+							if err == nil && len(scripts) > 0 {
+								if scripts[0].ID == file.ID {
+									if scene.ScriptSpeed != file.ScriptSpeed || scene.ScriptAPM != file.ScriptAPM {
+										scene.ScriptSpeed = file.ScriptSpeed
+										scene.ScriptAPM = file.ScriptAPM
+										scene.Save()
+									}
+								}
+							}
+						}
 					}
 				}
 			}
+		}
+
+		// Ensure all scripted scenes have their script_speed and script_apm synchronized
+		var scriptedScenes []models.Scene
+		db.Model(&models.Scene{}).Where("is_scripted = ?", true).Where("script_speed = ? OR script_speed IS NULL OR script_apm = ? OR script_apm IS NULL", 0, 0).Find(&scriptedScenes)
+		for i := range scriptedScenes {
+			scriptedScenes[i].UpdateStatus()
 		}
 	}
 }
@@ -118,7 +158,7 @@ func LoadFunscriptData(path string) (Script, error) {
 
 	// fix strokes with negative timestamps
 	i := 0
-	for funscript.Actions[i].At < 0 && i < len(funscript.Actions) {
+	for i < len(funscript.Actions) && funscript.Actions[i].At < 0 {
 		funscript.Actions[i].At = 0
 		i += 1
 	}
@@ -157,7 +197,7 @@ func RenderHeatmap(inputFile string, destFile string, width, height, numSegments
 
 	outpng, err := os.Create(destFile)
 	if err != nil {
-		return fmt.Errorf("Error storing png: " + err.Error())
+		return fmt.Errorf("Error storing png: %v", err)
 	}
 	defer outpng.Close()
 
@@ -264,7 +304,7 @@ func (funscript Script) getGradientTable(numSegments int) GradientTable {
 }
 
 func (funscript *Script) IsFunscriptToken() bool {
-	if len(funscript.Actions) > 100 {
+	if len(funscript.Actions) == 0 || len(funscript.Actions) > 100 {
 		return false
 	}
 	actions := make([]Action, len(funscript.Actions))
@@ -318,4 +358,107 @@ func getFunscriptDuration(path string) (float64, error) {
 	}
 
 	return funscript.getDuration(), nil
+}
+
+func (funscript Script) CalculateAPM() int {
+	n := len(funscript.Actions)
+	if n < 2 {
+		return 0
+	}
+
+	if funscript.IsFunscriptToken() {
+		return 0
+	}
+
+	sort.SliceStable(funscript.Actions, func(i, j int) bool { return funscript.Actions[i].At < funscript.Actions[j].At })
+
+	tStart := funscript.Actions[0].At
+	tEnd := funscript.Actions[n-1].At
+	durationMs := tEnd - tStart
+	if durationMs <= 0 {
+		return 0
+	}
+
+	apm := math.Round(float64(n) * 60000.0 / float64(durationMs))
+	return int(apm)
+}
+
+func CalculateFunscriptAPM(path string) (int, error) {
+	if !strings.HasSuffix(path, ".funscript") {
+		return 0, fmt.Errorf("not a funscript: %s", path)
+	}
+
+	funscript, err := LoadFunscriptData(path)
+	if err != nil {
+		return 0, err
+	}
+	if funscript.IsFunscriptToken() {
+		return 0, fmt.Errorf("funscript is a token: %s", path)
+	}
+
+	return funscript.CalculateAPM(), nil
+}
+
+// CalculateSpeed calculates the average physical movement speed in units/second (0-100 position scale per second),
+// as used by FapTap, funscript.io and Eroscripts tools.
+// Idle gaps and stationary intervals are filtered out so that long pauses do not skew the active movement speed.
+func (funscript Script) CalculateSpeed() int {
+	n := len(funscript.Actions)
+	if n < 2 {
+		return 0
+	}
+
+	if funscript.IsFunscriptToken() {
+		return 0
+	}
+
+	sort.SliceStable(funscript.Actions, func(i, j int) bool { return funscript.Actions[i].At < funscript.Actions[j].At })
+
+	var totalDistance float64
+	var movingDurationMs int64
+
+	for i := 1; i < n; i++ {
+		dt := funscript.Actions[i].At - funscript.Actions[i-1].At
+		if dt <= 0 {
+			continue
+		}
+
+		dp := math.Abs(float64(funscript.Actions[i].Pos - funscript.Actions[i-1].Pos))
+		totalDistance += dp
+
+		segSpeed := (dp * 1000.0) / float64(dt)
+		// Active moving segment: position changed and not an idle pause (> 3s with negligible speed < 5 units/s)
+		if dp > 0 && !(dt > 3000 && segSpeed < 5.0) {
+			movingDurationMs += dt
+		}
+	}
+
+	if movingDurationMs <= 0 {
+		tStart := funscript.Actions[0].At
+		tEnd := funscript.Actions[n-1].At
+		totalDurationMs := tEnd - tStart
+		if totalDurationMs > 0 && totalDistance > 0 {
+			return int(math.Round(totalDistance * 1000.0 / float64(totalDurationMs)))
+		}
+		return 0
+	}
+
+	speed := math.Round(totalDistance * 1000.0 / float64(movingDurationMs))
+	return int(speed)
+}
+
+func CalculateFunscriptSpeed(path string) (int, error) {
+	if !strings.HasSuffix(path, ".funscript") {
+		return 0, fmt.Errorf("not a funscript: %s", path)
+	}
+
+	funscript, err := LoadFunscriptData(path)
+	if err != nil {
+		return 0, err
+	}
+	if funscript.IsFunscriptToken() {
+		return 0, fmt.Errorf("funscript is a token: %s", path)
+	}
+
+	return funscript.CalculateSpeed(), nil
 }
