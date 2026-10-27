@@ -1225,6 +1225,16 @@ func queryScenes(db *gorm.DB, r RequestSceneList) (*gorm.DB, *gorm.DB) {
 		tx = tx.Order("created_at desc")
 	case "scene_updated_desc":
 		tx = tx.Order("updated_at desc")
+	case "script_speed_desc", "script_apm_desc":
+		tx = tx.
+			Where("scenes.is_scripted = ?", true).
+			Where("scenes.script_speed > 0 OR scenes.script_apm > 0").
+			Order("COALESCE(NULLIF(scenes.script_speed, 0), scenes.script_apm) desc")
+	case "script_speed_asc", "script_apm_asc":
+		tx = tx.
+			Where("scenes.is_scripted = ?", true).
+			Where("scenes.script_speed > 0 OR scenes.script_apm > 0").
+			Order("COALESCE(NULLIF(scenes.script_speed, 0), scenes.script_apm) asc")
 	case "script_published_desc":
 		// querying the scenes in from alternate sources (stored in external_reference) has a performance impact, so it's user choice
 		if config.Advanced.UseAltSrcInFileMatching {

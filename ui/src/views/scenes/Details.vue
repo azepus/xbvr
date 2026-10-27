@@ -90,7 +90,10 @@
                   <div class="column pb-0">
                     <div class="is-pulled-right is-flex is-align-items-center">
                       <b-tooltip v-if="(item.script_speed || item.script_apm) > 0" :label="`Vitesse moyenne : ${item.script_speed || item.script_apm} unités/s`" position="is-left">
-                        <span class="tag is-warning is-light is-small" style="font-weight: bold; margin-right: 0.5rem; cursor: default;">⚡ {{ item.script_speed || item.script_apm }}</span>
+                        <b-tag class="is-speed" size="is-small" style="margin-right: 0.5rem;">
+                          <b-icon pack="mdi" icon="flash" size="is-small"/>
+                          {{ item.script_speed || item.script_apm }}
+                        </b-tag>
                       </b-tooltip>
                       <small v-if="item.duration">{{ item.duration }} minutes</small>
                     </div>
@@ -257,7 +260,10 @@
                       <div class="media-content" style="overflow-wrap: break-word;">
                         <strong>{{ f.filename }}</strong>
                         <b-tooltip v-if="f.type === 'script' && (f.script_speed || f.script_apm) > 0" :label="`Vitesse moyenne : ${f.script_speed || f.script_apm} unités/s`" position="is-top">
-                          <span class="tag is-warning is-light is-small ml-2" style="font-weight: bold; cursor: default;">⚡ {{ f.script_speed || f.script_apm }}</span>
+                          <b-tag class="is-speed ml-2" size="is-small">
+                            <b-icon pack="mdi" icon="flash" size="is-small"/>
+                            {{ f.script_speed || f.script_apm }}
+                          </b-tag>
                         </b-tooltip>
                         <br/>
                         <small>
@@ -271,7 +277,10 @@
                         <div v-if="f.type === 'script' && (f.has_heatmap || (f.script_speed || f.script_apm) > 0)" class="heatmapFunscript">
                           <div v-if="(f.script_speed || f.script_apm) > 0" style="margin-bottom: 4px;">
                             <b-tooltip :label="`Vitesse moyenne : ${f.script_speed || f.script_apm} unités/s`" position="is-right">
-                              <span class="tag is-warning is-light is-small" style="font-weight: bold; cursor: default;">⚡ {{ f.script_speed || f.script_apm }}</span>
+                              <b-tag class="is-speed" size="is-small">
+                                <b-icon pack="mdi" icon="flash" size="is-small"/>
+                                {{ f.script_speed || f.script_apm }}
+                              </b-tag>
                             </b-tooltip>
                           </div>
                           <img v-if="f.has_heatmap" :src="getHeatmapURL(f.id)"/>

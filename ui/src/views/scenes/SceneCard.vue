@@ -21,8 +21,9 @@
               <span v-if="scriptFilesCount > 1">{{scriptFilesCount}}</span>
             </b-tag>
             <b-tooltip v-if="(item.script_speed || item.script_apm) > 0" :label="`Vitesse moyenne : ${item.script_speed || item.script_apm} unités/s`" position="is-top">
-              <b-tag type="is-warning is-light" style="font-weight: bold; cursor: default;">
-                ⚡ {{ item.script_speed || item.script_apm }}
+              <b-tag class="is-speed">
+                <b-icon pack="mdi" icon="flash" size="is-small"/>
+                {{ item.script_speed || item.script_apm }}
               </b-tag>
             </b-tooltip>
             <b-tag type="is-info" v-if="hspFilesCount > 0 && this.$store.state.optionsWeb.web.showHspFile">

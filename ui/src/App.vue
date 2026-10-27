@@ -69,4 +69,11 @@ export default {
   .modal-background {
     background-color: rgba(0, 0, 0, .40) !important;
   }
+  .tag.is-speed {
+    background-color: #f97316;
+    color: #ffffff;
+  }
+  .tag.is-speed .icon {
+    color: #ffffff;
+  }
 </style>
