@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/jinzhu/gorm"
+	"github.com/markphelps/optional"
 )
 
 func TestGetClimaxMinute(t *testing.T) {
@@ -247,5 +248,68 @@ func TestUpdateClimaxScore(t *testing.T) {
 	testDb.First(&reloadedFile, scriptFile.ID)
 	if !reloadedFile.RefreshHeatmapCache {
 		t.Errorf("expected RefreshHeatmapCache=true on script file after beating record")
+	}
+
+	// Verify ClimaxMinute is saved on scene struct and DB
+	if scene.ClimaxMinute != 20 {
+		t.Errorf("expected scene.ClimaxMinute=20, got %d", scene.ClimaxMinute)
+	}
+	if dbScene.ClimaxMinute != 20 {
+		t.Errorf("expected dbScene.ClimaxMinute=20, got %d", dbScene.ClimaxMinute)
+	}
+}
+
+func TestQueryScenesClimaxSort(t *testing.T) {
+	testDb, err := gorm.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory sqlite db: %v", err)
+	}
+	defer testDb.Close()
+
+	if err := testDb.AutoMigrate(&Scene{}, &Tag{}, &File{}, &KV{}).Error; err != nil {
+		t.Fatalf("failed to automigrate models: %v", err)
+	}
+
+	oldConn := commonConnection
+	commonConnection = testDb
+	defer func() { commonConnection = oldConn }()
+
+	s1 := Scene{SceneID: "s1", Title: "Scene 12m", ClimaxMinute: 12}
+	s2 := Scene{SceneID: "s2", Title: "Scene 25m", ClimaxMinute: 25}
+	s3 := Scene{SceneID: "s3", Title: "Scene 0m", ClimaxMinute: 0}
+	testDb.Create(&s1)
+	testDb.Create(&s2)
+	testDb.Create(&s3)
+
+	// Test climax_desc
+	rDesc := RequestSceneList{
+		Sort: optional.NewString("climax_desc"),
+	}
+	_, txDesc := queryScenes(testDb, rDesc)
+	var scenesDesc []Scene
+	if err := txDesc.Find(&scenesDesc).Error; err != nil {
+		t.Fatalf("failed to query scenes climax_desc: %v", err)
+	}
+	if len(scenesDesc) != 2 {
+		t.Fatalf("expected 2 scenes for climax_desc, got %d", len(scenesDesc))
+	}
+	if scenesDesc[0].ID != s2.ID || scenesDesc[1].ID != s1.ID {
+		t.Errorf("expected [Scene 25m, Scene 12m], got IDs [%d, %d]", scenesDesc[0].ID, scenesDesc[1].ID)
+	}
+
+	// Test climax_asc
+	rAsc := RequestSceneList{
+		Sort: optional.NewString("climax_asc"),
+	}
+	_, txAsc := queryScenes(testDb, rAsc)
+	var scenesAsc []Scene
+	if err := txAsc.Find(&scenesAsc).Error; err != nil {
+		t.Fatalf("failed to query scenes climax_asc: %v", err)
+	}
+	if len(scenesAsc) != 2 {
+		t.Fatalf("expected 2 scenes for climax_asc, got %d", len(scenesAsc))
+	}
+	if scenesAsc[0].ID != s1.ID || scenesAsc[1].ID != s2.ID {
+		t.Errorf("expected [Scene 12m, Scene 25m], got IDs [%d, %d]", scenesAsc[0].ID, scenesAsc[1].ID)
 	}
 }

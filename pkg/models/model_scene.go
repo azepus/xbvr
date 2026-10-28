@@ -90,6 +90,7 @@ type Scene struct {
 	IsScripted     bool            `json:"is_scripted" gorm:"default:false" xbvrbackup:"-"`
 	ScriptAPM      int             `json:"script_apm" gorm:"default:0" xbvrbackup:"script_apm"`
 	ScriptSpeed    int             `json:"script_speed" gorm:"default:0" xbvrbackup:"script_speed"`
+	ClimaxMinute   int             `json:"climax_minute" gorm:"default:0" xbvrbackup:"climax_minute"`
 	Cuepoints      []SceneCuepoint `json:"cuepoints" xbvrbackup:"-"`
 	History        []History       `json:"history" xbvrbackup:"-"`
 	AddedDate      time.Time       `json:"added_date" xbvrbackup:"added_date"`
@@ -211,6 +212,9 @@ func (s *Scene) GetClimaxMinute() int {
 	if s == nil {
 		return 0
 	}
+	if s.ClimaxMinute > 0 {
+		return s.ClimaxMinute
+	}
 	tags := s.Tags
 	if len(tags) == 0 && s.ID != 0 {
 		commonDb, err := GetCommonDB()
@@ -289,6 +293,7 @@ func (s *Scene) UpdateClimaxScore(minutes int) (bool, int, error) {
 	}
 	updatedTags = append(updatedTags, newTag)
 	s.Tags = updatedTags
+	s.ClimaxMinute = minutes
 
 	scriptFiles, err := s.GetScriptFiles()
 	if err == nil {
@@ -1335,6 +1340,14 @@ func queryScenes(db *gorm.DB, r RequestSceneList) (*gorm.DB, *gorm.DB) {
 			Where("scenes.is_scripted = ?", true).
 			Where("scenes.script_speed > 0 OR scenes.script_apm > 0").
 			Order("COALESCE(NULLIF(scenes.script_speed, 0), scenes.script_apm) asc")
+	case "climax_desc":
+		tx = tx.
+			Where("scenes.climax_minute > 0").
+			Order("scenes.climax_minute desc")
+	case "climax_asc":
+		tx = tx.
+			Where("scenes.climax_minute > 0").
+			Order("scenes.climax_minute asc")
 	case "script_published_desc":
 		// querying the scenes in from alternate sources (stored in external_reference) has a performance impact, so it's user choice
 		if config.Advanced.UseAltSrcInFileMatching {

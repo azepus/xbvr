@@ -2407,6 +2407,53 @@ func Migrate(migrateTo string) {
 				return tx.Table("scenes").AddIndex("idx_scenes_scraper_id", "scraper_id").Error
 			},
 		},
+		{
+			ID: "0088-add-scene-climax-minute",
+			Migrate: func(tx *gorm.DB) error {
+				// Add climax_minute column to scenes table
+				if err := tx.AutoMigrate(&models.Scene{}).Error; err != nil {
+					return err
+				}
+
+				// Backfill existing scenes with climax-*m tags
+				type SceneTagResult struct {
+					SceneID uint   `gorm:"column:scene_id"`
+					TagName string `gorm:"column:tag_name"`
+				}
+				var results []SceneTagResult
+				err := tx.Table("scenes").
+					Select("scenes.id as scene_id, tags.name as tag_name").
+					Joins("JOIN scene_tags ON scene_tags.scene_id = scenes.id").
+					Joins("JOIN tags ON tags.id = scene_tags.tag_id").
+					Where("scenes.climax_minute = 0 OR scenes.climax_minute IS NULL").
+					Scan(&results).Error
+				if err != nil {
+					return err
+				}
+
+				climaxTagRegex := regexp.MustCompile(`(?i)^climax-(\d+)m?$`)
+				climaxScores := make(map[uint]int)
+				for _, res := range results {
+					matches := climaxTagRegex.FindStringSubmatch(strings.TrimSpace(res.TagName))
+					if len(matches) > 1 {
+						if min, err := strconv.Atoi(matches[1]); err == nil && min > 0 {
+							if min > climaxScores[res.SceneID] {
+								climaxScores[res.SceneID] = min
+							}
+						}
+					}
+				}
+
+				for sceneID, min := range climaxScores {
+					if err := tx.Table("scenes").Where("id = ?", sceneID).Update("climax_minute", min).Error; err != nil {
+						return err
+					}
+				}
+
+				common.Log.Infof("Migration 0088-add-scene-climax-minute completed, backfilled %d scenes", len(climaxScores))
+				return nil
+			},
+		},
 	}
 
 	// Wrap migrations to automatically track progress
@@ -2420,7 +2467,7 @@ func Migrate(migrateTo string) {
 			Migrate: func(tx *gorm.DB) error {
 				// Update status before running migration
 				msg := fmt.Sprintf("Running migration %s", migrations[currentIndex].ID)
-				tlog.Infof(msg)
+				tlog.Info(msg)
 				config.UpdateMigrationStatus(migrations[currentIndex].ID, currentIndex+1, totalMigrations, msg)
 
 				// Run the actual migration

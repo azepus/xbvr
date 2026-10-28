@@ -58,6 +58,8 @@
             <option value="script_published_desc">↓ {{ $t("Published Script Added") }}</option>
             <option value="script_speed_desc">↓ {{ $t("Funscript speed") }}</option>
             <option value="script_speed_asc">↑ {{ $t("Funscript speed") }}</option>
+            <option value="climax_desc">↓ {{ $t("Climax (Best stamina)") }}</option>
+            <option value="climax_asc">↑ {{ $t("Climax (Worst stamina)") }}</option>
             <option value="scene_id_desc">↓ {{ $t("Scene Id") }}</option>
             <option value="site_asc">↑ {{ $t("Site") }}</option>
             <option value="alt_src_desc">↓ {{ $t("Linked to Alternate Sites") }}</option>
