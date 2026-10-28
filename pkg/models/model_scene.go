@@ -232,6 +232,79 @@ func (s *Scene) GetClimaxMinute() int {
 	return 0
 }
 
+// UpdateClimaxScore applique la règle du meilleur score et retourne (battu bool, ancienRecord int, err error)
+func (s *Scene) UpdateClimaxScore(minutes int) (bool, int, error) {
+	if s == nil {
+		return false, 0, nil
+	}
+
+	oldRecord := s.GetClimaxMinute()
+	if minutes <= 0 {
+		return false, oldRecord, nil
+	}
+
+	if oldRecord > 0 && minutes <= oldRecord {
+		return false, oldRecord, nil
+	}
+
+	commonDb, err := GetCommonDB()
+	if err != nil {
+		return false, oldRecord, err
+	}
+
+	if len(s.Tags) == 0 && s.ID != 0 {
+		var loadedTags []Tag
+		_ = commonDb.Model(s).Association("Tags").Find(&loadedTags).Error
+		s.Tags = loadedTags
+	}
+
+	oldTagName := ""
+	if oldRecord > 0 {
+		oldTagName = fmt.Sprintf("climax-%dm", oldRecord)
+		var oldTag Tag
+		if err := commonDb.Where(&Tag{Name: oldTagName}).First(&oldTag).Error; err == nil && oldTag.ID != 0 {
+			_ = commonDb.Model(s).Association("Tags").Delete(&oldTag).Error
+		}
+		for _, t := range s.Tags {
+			if climaxTagRegex.MatchString(strings.TrimSpace(t.Name)) {
+				_ = commonDb.Model(s).Association("Tags").Delete(&t).Error
+			}
+		}
+	}
+
+	newTagName := fmt.Sprintf("climax-%dm", minutes)
+	var newTag Tag
+	if err := commonDb.Where(&Tag{Name: newTagName}).FirstOrCreate(&newTag).Error; err != nil {
+		return false, oldRecord, err
+	}
+	if err := commonDb.Model(s).Association("Tags").Append(&newTag).Error; err != nil {
+		return false, oldRecord, err
+	}
+
+	var updatedTags []Tag
+	for _, t := range s.Tags {
+		if !climaxTagRegex.MatchString(strings.TrimSpace(t.Name)) && (oldTagName == "" || t.Name != oldTagName) && t.ID != newTag.ID {
+			updatedTags = append(updatedTags, t)
+		}
+	}
+	updatedTags = append(updatedTags, newTag)
+	s.Tags = updatedTags
+
+	scriptFiles, err := s.GetScriptFiles()
+	if err == nil {
+		for _, f := range scriptFiles {
+			f.RefreshHeatmapCache = true
+			_ = commonDb.Save(&f).Error
+		}
+	}
+
+	if err := s.Save(); err != nil {
+		return false, oldRecord, err
+	}
+
+	return true, oldRecord, nil
+}
+
 func (o *Scene) GetFunscriptTitle() string {
 	// first make the title filename safe
 	re := regexp.MustCompile(`[?/\<>|]`)

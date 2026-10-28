@@ -854,7 +854,7 @@ func ProcessHeresphereUpdates(scene *models.Scene, requestData HereSphereAuthReq
 		// need to reread the cuepoints, to handle muti threading issues and the scene record may have changed
 		// just preload the cuepoint, preload all associations and the scene, does not reread the cuepoint?, so just get them and update the scene
 		var existingScene models.Scene
-		db.Preload("Cuepoints", "track is not null").Where("id = ?", scene.ID).First(&existingScene)
+		db.Preload("Cuepoints").Where("id = ?", scene.ID).First(&existingScene)
 
 		var replacementCuepoints []models.SceneCuepoint
 		endpos := findEndPos(requestData)
@@ -864,6 +864,34 @@ func ProcessHeresphereUpdates(scene *models.Scene, requestData HereSphereAuthReq
 		lastTrack := -1
 		for _, tag := range *requestData.Tags {
 			if !strings.Contains(tag.Name, ":") || (strings.HasPrefix(tag.Name, "Talent:") && tag.StartMilliseconds != 0 && tag.EndMilliseconds != endpos) {
+				// Climax detection via HereSphere cuepoint/bookmark
+				isClimaxName := strings.Contains(strings.ToLower(tag.Name), "climax")
+				isNewBookmark := false
+				if !isClimaxName && tag.StartMilliseconds > 0 && !strings.HasPrefix(tag.Name, "Talent:") {
+					found := false
+					for _, cp := range existingScene.Cuepoints {
+						if math.Abs(cp.TimeStart-(tag.StartMilliseconds/1000.0)) < 1.0 {
+							found = true
+							break
+						}
+					}
+					if !found {
+						isNewBookmark = true
+					}
+				}
+
+				if isClimaxName || isNewBookmark {
+					minutes := int(tag.StartMilliseconds / 60000)
+					if minutes > 0 {
+						updated, _, err := scene.UpdateClimaxScore(minutes)
+						if err != nil {
+							log.Error(err)
+						} else {
+							log.Infof("HereSphere climax triggered: %dm (updated=%v)", minutes, updated)
+						}
+					}
+				}
+
 				if lastTrack != int(*tag.Track) {
 					// adjust track numbers, starting at track 0
 					lastTrack = int(*tag.Track)

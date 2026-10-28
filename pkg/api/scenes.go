@@ -40,6 +40,19 @@ type RequestSetSceneRating struct {
 	Rating float64 `json:"rating"`
 }
 
+type RequestRecordClimax struct {
+	Minutes int `json:"minutes"`
+}
+
+type ResponseRecordClimax struct {
+	Success   bool         `json:"success"`
+	Updated   bool         `json:"updated"`
+	Minutes   int          `json:"minutes"`
+	OldRecord int          `json:"old_record"`
+	Message   string       `json:"message"`
+	Scene     models.Scene `json:"scene,omitempty"`
+}
+
 type RequestSelectScript struct {
 	FileID uint `json:"file_id"`
 }
@@ -134,6 +147,10 @@ func (i SceneResource) WebService() *restful.WebService {
 	ws.Route(ws.POST("/{scene-id}/cuepoint").To(i.addSceneCuepoint).
 		Metadata(restfulspec.KeyOpenAPITags, tags).
 		Writes(models.Scene{}))
+
+	ws.Route(ws.POST("/{scene-id}/climax").To(i.recordClimax).
+		Metadata(restfulspec.KeyOpenAPITags, tags).
+		Writes(ResponseRecordClimax{}))
 
 	ws.Route(ws.DELETE("/{scene-id}/cuepoint/{cuepoint-id}").To(i.deleteSceneCuepoint).
 		Metadata(restfulspec.KeyOpenAPITags, tags).
@@ -782,6 +799,83 @@ func (i SceneResource) addSceneCuepoint(req *restful.Request, resp *restful.Resp
 	db.Close()
 
 	resp.WriteHeaderAndEntity(http.StatusOK, scene)
+}
+
+func (i SceneResource) recordClimax(req *restful.Request, resp *restful.Response) {
+	var scene models.Scene
+	sceneParam := req.PathParameter("scene-id")
+
+	if strings.Contains(sceneParam, "-") {
+		if err := scene.GetIfExist(sceneParam); err != nil {
+			resp.WriteHeaderAndEntity(http.StatusNotFound, ResponseRecordClimax{
+				Success: false,
+				Message: "Scene not found",
+			})
+			return
+		}
+	} else {
+		id, err := strconv.Atoi(sceneParam)
+		if err != nil {
+			resp.WriteHeaderAndEntity(http.StatusBadRequest, ResponseRecordClimax{
+				Success: false,
+				Message: "Invalid scene id",
+			})
+			return
+		}
+		if err := scene.GetIfExistByPK(uint(id)); err != nil {
+			resp.WriteHeaderAndEntity(http.StatusNotFound, ResponseRecordClimax{
+				Success: false,
+				Message: "Scene not found",
+			})
+			return
+		}
+	}
+
+	var r RequestRecordClimax
+	_ = req.ReadEntity(&r)
+
+	minutes := r.Minutes
+	oldRecord := scene.GetClimaxMinute()
+
+	if minutes <= 0 {
+		resp.WriteHeaderAndEntity(http.StatusBadRequest, ResponseRecordClimax{
+			Success:   false,
+			Updated:   false,
+			Minutes:   minutes,
+			OldRecord: oldRecord,
+			Message:   "Positionnez la vidéo après au moins 1 minute",
+		})
+		return
+	}
+
+	updated, oldRecord, err := scene.UpdateClimaxScore(minutes)
+	if err != nil {
+		log.Error(err)
+		resp.WriteHeaderAndEntity(http.StatusInternalServerError, ResponseRecordClimax{
+			Success:   false,
+			Updated:   false,
+			Minutes:   minutes,
+			OldRecord: oldRecord,
+			Message:   err.Error(),
+		})
+		return
+	}
+
+	message := "Nouveau record enregistré !"
+	if !updated {
+		message = fmt.Sprintf("Record préservé (%d min)", oldRecord)
+	}
+
+	_ = scene.GetIfExistByPK(scene.ID)
+
+	resp.WriteHeaderAndEntity(http.StatusOK, ResponseRecordClimax{
+		Success:   true,
+		Updated:   updated,
+		Minutes:   minutes,
+		OldRecord: oldRecord,
+		Message:   message,
+		Scene:     scene,
+	})
 }
 
 func (i SceneResource) deleteSceneCuepoint(req *restful.Request, resp *restful.Response) {
