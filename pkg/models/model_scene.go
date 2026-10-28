@@ -205,6 +205,33 @@ func (o *Scene) GetIfExistURL(u string) error {
 		Where(&Scene{SceneURL: u}).First(o).Error
 }
 
+var climaxTagRegex = regexp.MustCompile(`(?i)^climax-(\d+)m?$`)
+
+func (s *Scene) GetClimaxMinute() int {
+	if s == nil {
+		return 0
+	}
+	tags := s.Tags
+	if len(tags) == 0 && s.ID != 0 {
+		commonDb, err := GetCommonDB()
+		if err == nil && commonDb != nil {
+			var loadedTags []Tag
+			if err := commonDb.Model(s).Association("Tags").Find(&loadedTags).Error; err == nil && len(loadedTags) > 0 {
+				tags = loadedTags
+			}
+		}
+	}
+	for _, t := range tags {
+		matches := climaxTagRegex.FindStringSubmatch(strings.TrimSpace(t.Name))
+		if len(matches) > 1 {
+			if min, err := strconv.Atoi(matches[1]); err == nil && min > 0 {
+				return min
+			}
+		}
+	}
+	return 0
+}
+
 func (o *Scene) GetFunscriptTitle() string {
 	// first make the title filename safe
 	re := regexp.MustCompile(`[?/\<>|]`)

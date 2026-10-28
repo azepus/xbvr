@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"image"
 	"image/color"
@@ -35,7 +36,14 @@ const heatmapHeight = 10
 const heatmapMargin = 3
 const maximumHeatmaps = 20 // maximumHeatmaps*(heatmapHeight+heatmapMargin) needs to be lower than thumbnailHeight
 
-var badgeFace font.Face
+//go:embed climax_splash.png
+var climaxSplashPNG []byte
+
+var (
+	badgeFace             font.Face
+	climaxSplashBaseImage image.Image
+	climaxSplashImage     image.Image
+)
 
 func init() {
 	f, err := opentype.Parse(gobold.TTF)
@@ -45,6 +53,14 @@ func init() {
 			DPI:     72,
 			Hinting: font.HintingFull,
 		})
+	}
+
+	if len(climaxSplashPNG) > 0 {
+		img, err := png.Decode(bytes.NewReader(climaxSplashPNG))
+		if err == nil {
+			climaxSplashBaseImage = img
+			climaxSplashImage = imaging.Resize(img, 72, 77, imaging.Lanczos)
+		}
 	}
 }
 
@@ -93,11 +109,9 @@ func getSceneAndScriptFiles(urlpart string) (*models.Scene, []models.File, error
 	}
 
 	scriptfiles, err := scene.GetScriptFilesSorted(config.Config.Interfaces.Players.ScriptSortSeq)
-	if err != nil || len(scriptfiles) < 1 {
-		return &scene, files, fmt.Errorf("scene %d has no script files", sceneId)
+	if err == nil && len(scriptfiles) >= 1 {
+		files = append(files, scriptfiles...)
 	}
-
-	files = append(files, scriptfiles...)
 
 	return &scene, files, nil
 }
@@ -225,7 +239,55 @@ func drawLightningBolt(ras *vector.Rasterizer, ox, oy float32) {
 	ras.ClosePath()
 }
 
-func createHeatmapThumbnail(out *bytes.Buffer, r io.Reader, heatmapImages []image.Image, badgeValue int) error {
+func climaxBadgeWidth(minutes int) int {
+	if minutes <= 0 {
+		return 0
+	}
+	return 72
+}
+
+func drawClimaxSplashBadge(dst *image.NRGBA, x, y int, minutes int) {
+	if badgeFace == nil || minutes <= 0 || dst == nil || climaxSplashImage == nil {
+		return
+	}
+
+	badgeW := climaxBadgeWidth(minutes)
+	if x <= 0 {
+		x = thumbnailWidth - badgeW - 20
+	}
+	if y <= 0 {
+		y = 85
+	}
+	badgeH := climaxSplashImage.Bounds().Dy()
+
+	drawRect := image.Rect(x, y, x+badgeW, y+badgeH).Intersect(dst.Bounds())
+	if drawRect.Empty() {
+		return
+	}
+
+	// 1. Draw Option 1 Splash Artwork (user reference image)
+	draw.Draw(dst, drawRect, climaxSplashImage, image.Point{X: drawRect.Min.X - x, Y: drawRect.Min.Y - y}, draw.Over)
+
+	// 2. Draw centered timing text (e.g. "20m")
+	text := fmt.Sprintf("%dm", minutes)
+	d := font.Drawer{Face: badgeFace}
+	textAdv := d.MeasureString(text)
+	textWidth := textAdv.Ceil()
+
+	// Artwork white center of mass is at (49% W, 47% H)
+	centerX := x + int(float64(badgeW)*0.49)
+	centerY := y + int(float64(badgeH)*0.47)
+
+	textX := centerX - textWidth/2
+	textY := centerY + 5
+
+	d.Dst = dst
+	d.Src = image.NewUniform(color.RGBA{15, 23, 42, 255})
+	d.Dot = fixed.P(textX, textY)
+	d.DrawString(text)
+}
+
+func createHeatmapThumbnail(out *bytes.Buffer, r io.Reader, heatmapImages []image.Image, badgeValue int, climaxMinutes int) error {
 	thumbnailImage, err := jpeg.Decode(r)
 
 	if err != nil {
@@ -252,6 +314,13 @@ func createHeatmapThumbnail(out *bytes.Buffer, r io.Reader, heatmapImages []imag
 
 	if badgeValue > 0 {
 		drawSpeedBadge(canvas, 20, 20, badgeValue)
+	}
+
+	if climaxMinutes > 0 {
+		badgeW := climaxBadgeWidth(climaxMinutes)
+		badgeX := thumbnailWidth - badgeW - 20
+		badgeY := 85
+		drawClimaxSplashBadge(canvas, badgeX, badgeY, climaxMinutes)
 	}
 
 	jpeg.Encode(out, canvas, &jpeg.Options{Quality: 90})
@@ -284,11 +353,13 @@ func (p *HeatmapThumbnailProxy) ServeHTTP(w http.ResponseWriter, r *http.Request
 	}
 
 	badgeValue := 0
+	climaxMinutes := 0
 	if scene != nil {
 		badgeValue = scene.ScriptSpeed
 		if badgeValue == 0 {
 			badgeValue = scene.ScriptAPM
 		}
+		climaxMinutes = scene.GetClimaxMinute()
 	}
 	if badgeValue == 0 && len(files) > 0 {
 		badgeValue = files[0].ScriptSpeed
@@ -306,11 +377,18 @@ func (p *HeatmapThumbnailProxy) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	cacheKey := fmt.Sprintf("v2:%d:%d:%s", files[0].ID, badgeValue, imageURL)
+	var fileID uint
+	if len(files) > 0 {
+		fileID = files[0].ID
+	} else if scene != nil {
+		fileID = scene.ID
+	}
+	cacheKey := fmt.Sprintf("v5:%d:%d:%d:%s", fileID, badgeValue, climaxMinutes, imageURL)
 
 	if loadFromCache {
 		cachedContent, ok := p.Cache.Get(cacheKey)
 		if ok {
+			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 			w.Header().Add("Content-Type", "image/jpeg")
 			w.Header().Add("Content-Length", fmt.Sprint(len(cachedContent)))
 			if _, err := io.Copy(w, bytes.NewReader(cachedContent)); err != nil {
@@ -332,7 +410,7 @@ func (p *HeatmapThumbnailProxy) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	if len(heatmapImages) == 0 {
+	if len(heatmapImages) == 0 && badgeValue == 0 && climaxMinutes == 0 {
 		p.serveImageproxyResponse(w, r, imageURL)
 		return
 	}
@@ -359,9 +437,10 @@ func (p *HeatmapThumbnailProxy) ServeHTTP(w http.ResponseWriter, r *http.Request
 	respbody, err := io.ReadAll(imageproxyResponseWriter.buf)
 	if err == nil {
 		var output bytes.Buffer
-		err = createHeatmapThumbnail(&output, bytes.NewReader(respbody), heatmapImages, badgeValue)
+		err = createHeatmapThumbnail(&output, bytes.NewReader(respbody), heatmapImages, badgeValue, climaxMinutes)
 		if err == nil {
 			p.Cache.Set(cacheKey, output.Bytes())
+			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 			w.Header().Add("Content-Type", "image/jpeg")
 			w.Header().Add("Content-Length", fmt.Sprint(len(output.Bytes())))
 			if _, err := io.Copy(w, bytes.NewReader(output.Bytes())); err != nil {
