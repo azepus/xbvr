@@ -58,8 +58,8 @@ func TestClimaxBadgeWidth(t *testing.T) {
 	w18 := climaxBadgeWidth(18)
 	w120 := climaxBadgeWidth(120)
 
-	if w8 != 72 || w18 != 72 || w120 != 72 {
-		t.Errorf("Expected fixed splash badge width of 72, got w8=%d, w18=%d, w120=%d", w8, w18, w120)
+	if w8 != 130 || w18 != 130 || w120 != 130 {
+		t.Errorf("Expected fixed splash badge width of 130, got w8=%d, w18=%d, w120=%d", w8, w18, w120)
 	}
 }
 
@@ -75,20 +75,20 @@ func TestDrawClimaxSplashBadge(t *testing.T) {
 	drawClimaxSplashBadge(canvas, badgeX, badgeY, 18)
 
 	// Center of badge should have non-gray pixel (text or white splash fill)
-	centerPixel := canvas.NRGBAAt(badgeX+35, badgeY+36)
+	centerPixel := canvas.NRGBAAt(badgeX+63, badgeY+65)
 	if centerPixel.R == 128 && centerPixel.G == 128 && centerPixel.B == 128 {
 		t.Errorf("Expected center of badge to be drawn, got untouched gray %v", centerPixel)
 	}
 
 	// Interior white splash area
-	whitePixel := canvas.NRGBAAt(badgeX+35, badgeY+22)
+	whitePixel := canvas.NRGBAAt(badgeX+63, badgeY+40)
 	if whitePixel.R < 200 || whitePixel.G < 200 || whitePixel.B < 200 {
 		t.Errorf("Expected white pixel in splash interior, got %v", whitePixel)
 	}
 
 	// Verify dark contrast accent lines and text exist in the splash (#0F172A)
 	darkPixelCount := 0
-	for y := badgeY; y <= badgeY+77; y++ {
+	for y := badgeY; y <= badgeY+139; y++ {
 		for x := badgeX; x <= badgeX+badgeW; x++ {
 			p := canvas.NRGBAAt(x, y)
 			if p.R < 40 && p.G < 40 && p.B < 60 && p.A > 0 {
@@ -106,15 +106,15 @@ func TestDrawClimaxSplashBadgeEdgeCases(t *testing.T) {
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{color.NRGBA{0, 0, 0, 255}}, image.Point{}, draw.Src)
 
 	// minutes <= 0 should do nothing
-	drawClimaxSplashBadge(canvas, 608, 85, 0)
-	drawClimaxSplashBadge(canvas, 608, 85, -10)
-	pixel := canvas.NRGBAAt(608, 85)
+	drawClimaxSplashBadge(canvas, 550, 85, 0)
+	drawClimaxSplashBadge(canvas, 550, 85, -10)
+	pixel := canvas.NRGBAAt(550, 85)
 	if pixel.R != 0 || pixel.G != 0 || pixel.B != 0 {
 		t.Errorf("Expected untouched canvas for non-positive minutes, got %v", pixel)
 	}
 
 	// nil canvas should not panic
-	drawClimaxSplashBadge(nil, 608, 85, 18)
+	drawClimaxSplashBadge(nil, 550, 85, 18)
 
 	// Auto-positioning when x <= 0 and y <= 0
 	canvasAuto := image.NewNRGBA(image.Rect(0, 0, 700, 420))
@@ -122,7 +122,7 @@ func TestDrawClimaxSplashBadgeEdgeCases(t *testing.T) {
 	drawClimaxSplashBadge(canvasAuto, 0, 0, 18)
 	expectedX := thumbnailWidth - climaxBadgeWidth(18) - 20
 	expectedY := 85
-	autoPixel := canvasAuto.NRGBAAt(expectedX+35, expectedY+22)
+	autoPixel := canvasAuto.NRGBAAt(expectedX+63, expectedY+40)
 	if autoPixel.R < 200 || autoPixel.G < 200 {
 		t.Errorf("Expected auto-positioned badge at x=%d, y=%d, got pixel %v", expectedX, expectedY, autoPixel)
 	}

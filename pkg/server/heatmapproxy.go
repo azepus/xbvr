@@ -41,6 +41,7 @@ var climaxSplashPNG []byte
 
 var (
 	badgeFace             font.Face
+	climaxBadgeFace       font.Face
 	climaxSplashBaseImage image.Image
 	climaxSplashImage     image.Image
 )
@@ -53,13 +54,18 @@ func init() {
 			DPI:     72,
 			Hinting: font.HintingFull,
 		})
+		climaxBadgeFace, _ = opentype.NewFace(f, &opentype.FaceOptions{
+			Size:    27,
+			DPI:     72,
+			Hinting: font.HintingFull,
+		})
 	}
 
 	if len(climaxSplashPNG) > 0 {
 		img, err := png.Decode(bytes.NewReader(climaxSplashPNG))
 		if err == nil {
 			climaxSplashBaseImage = img
-			climaxSplashImage = imaging.Resize(img, 72, 77, imaging.Lanczos)
+			climaxSplashImage = imaging.Resize(img, 130, 139, imaging.Lanczos)
 		}
 	}
 }
@@ -243,11 +249,11 @@ func climaxBadgeWidth(minutes int) int {
 	if minutes <= 0 {
 		return 0
 	}
-	return 72
+	return 130
 }
 
 func drawClimaxSplashBadge(dst *image.NRGBA, x, y int, minutes int) {
-	if badgeFace == nil || minutes <= 0 || dst == nil || climaxSplashImage == nil {
+	if climaxBadgeFace == nil || minutes <= 0 || dst == nil || climaxSplashImage == nil {
 		return
 	}
 
@@ -270,7 +276,7 @@ func drawClimaxSplashBadge(dst *image.NRGBA, x, y int, minutes int) {
 
 	// 2. Draw centered timing text (e.g. "20m")
 	text := fmt.Sprintf("%dm", minutes)
-	d := font.Drawer{Face: badgeFace}
+	d := font.Drawer{Face: climaxBadgeFace}
 	textAdv := d.MeasureString(text)
 	textWidth := textAdv.Ceil()
 
@@ -279,7 +285,7 @@ func drawClimaxSplashBadge(dst *image.NRGBA, x, y int, minutes int) {
 	centerY := y + int(float64(badgeH)*0.47)
 
 	textX := centerX - textWidth/2
-	textY := centerY + 5
+	textY := centerY + 9
 
 	d.Dst = dst
 	d.Src = image.NewUniform(color.RGBA{15, 23, 42, 255})
@@ -383,7 +389,7 @@ func (p *HeatmapThumbnailProxy) ServeHTTP(w http.ResponseWriter, r *http.Request
 	} else if scene != nil {
 		fileID = scene.ID
 	}
-	cacheKey := fmt.Sprintf("v5:%d:%d:%d:%s", fileID, badgeValue, climaxMinutes, imageURL)
+	cacheKey := fmt.Sprintf("v8:%d:%d:%d:%s", fileID, badgeValue, climaxMinutes, imageURL)
 
 	if loadFromCache {
 		cachedContent, ok := p.Cache.Get(cacheKey)
