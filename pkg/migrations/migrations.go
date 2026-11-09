@@ -2454,6 +2454,16 @@ func Migrate(migrateTo string) {
 				return nil
 			},
 		},
+		{
+			ID: "0089-resync-scene-climax-minute",
+			Migrate: func(tx *gorm.DB) error {
+				if err := models.SyncAllClimaxScores(tx); err != nil {
+					return err
+				}
+				common.Log.Infof("Migration 0089-resync-scene-climax-minute completed")
+				return nil
+			},
+		},
 	}
 
 	// Wrap migrations to automatically track progress

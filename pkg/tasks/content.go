@@ -101,6 +101,13 @@ type RequestRestore struct {
 func CleanTags() {
 	RenameTags()
 	CountTags()
+	SyncClimaxScores()
+}
+
+func SyncClimaxScores() {
+	db, _ := models.GetDB()
+	defer db.Close()
+	_ = models.SyncAllClimaxScores(db)
 }
 
 func runScrapers(knownScenes []string, toScrape string, updateSite bool, collectedScenes chan<- models.ScrapedScene, singleSceneURL string, singeScrapeAdditionalInfo string) error {

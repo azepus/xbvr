@@ -313,3 +313,71 @@ func TestQueryScenesClimaxSort(t *testing.T) {
 		t.Errorf("expected [Scene 12m, Scene 25m], got IDs [%d, %d]", scenesAsc[0].ID, scenesAsc[1].ID)
 	}
 }
+
+func TestSyncClimaxMinute(t *testing.T) {
+	scene := Scene{
+		ClimaxMinute: 0,
+		Tags: []Tag{
+			{Name: "vr"},
+			{Name: "climax-44m"},
+			{Name: "climax-12m"},
+		},
+	}
+	min := scene.SyncClimaxMinute()
+	if min != 44 {
+		t.Errorf("expected SyncClimaxMinute() to return 44, got %d", min)
+	}
+	if scene.ClimaxMinute != 44 {
+		t.Errorf("expected scene.ClimaxMinute to be 44, got %d", scene.ClimaxMinute)
+	}
+
+	// When all climax tags are removed
+	scene.Tags = []Tag{{Name: "vr"}}
+	min = scene.SyncClimaxMinute()
+	if min != 0 {
+		t.Errorf("expected SyncClimaxMinute() to return 0, got %d", min)
+	}
+	if scene.ClimaxMinute != 0 {
+		t.Errorf("expected scene.ClimaxMinute to be 0, got %d", scene.ClimaxMinute)
+	}
+}
+
+func TestSyncAllClimaxScores(t *testing.T) {
+	testDb, err := gorm.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory sqlite db: %v", err)
+	}
+	defer testDb.Close()
+
+	if err := testDb.AutoMigrate(&Scene{}, &Tag{}, &File{}, &KV{}).Error; err != nil {
+		t.Fatalf("failed to automigrate models: %v", err)
+	}
+
+	t1 := Tag{Name: "climax-30m"}
+	t2 := Tag{Name: "climax-15m"}
+	testDb.Create(&t1)
+	testDb.Create(&t2)
+
+	s1 := Scene{SceneID: "s1", Title: "Scene 1", ClimaxMinute: 0}
+	s2 := Scene{SceneID: "s2", Title: "Scene 2", ClimaxMinute: 50} // old score, tag was removed
+	testDb.Create(&s1)
+	testDb.Create(&s2)
+
+	testDb.Model(&s1).Association("Tags").Append(&t1, &t2)
+
+	if err := SyncAllClimaxScores(testDb); err != nil {
+		t.Fatalf("SyncAllClimaxScores failed: %v", err)
+	}
+
+	var updatedS1 Scene
+	testDb.First(&updatedS1, s1.ID)
+	if updatedS1.ClimaxMinute != 30 {
+		t.Errorf("expected s1.ClimaxMinute to be 30, got %d", updatedS1.ClimaxMinute)
+	}
+
+	var updatedS2 Scene
+	testDb.First(&updatedS2, s2.ID)
+	if updatedS2.ClimaxMinute != 0 {
+		t.Errorf("expected s2.ClimaxMinute to be reset to 0, got %d", updatedS2.ClimaxMinute)
+	}
+}

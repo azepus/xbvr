@@ -206,7 +206,91 @@ func (o *Scene) GetIfExistURL(u string) error {
 		Where(&Scene{SceneURL: u}).First(o).Error
 }
 
-var climaxTagRegex = regexp.MustCompile(`(?i)^climax-(\d+)m?$`)
+var ClimaxTagRegex = regexp.MustCompile(`(?i)^climax-(\d+)m?$`)
+var climaxTagRegex = ClimaxTagRegex
+
+// SyncClimaxMinute inspects the provided tags (or scene.Tags if none provided) and updates ClimaxMinute.
+// Returns the synchronized climax minute.
+func (s *Scene) SyncClimaxMinute(tags ...[]Tag) int {
+	if s == nil {
+		return 0
+	}
+	var checkTags []Tag
+	if len(tags) > 0 {
+		checkTags = tags[0]
+	} else {
+		checkTags = s.Tags
+		if len(checkTags) == 0 && s.ID != 0 {
+			commonDb, err := GetCommonDB()
+			if err == nil && commonDb != nil {
+				var loadedTags []Tag
+				if err := commonDb.Model(s).Association("Tags").Find(&loadedTags).Error; err == nil {
+					checkTags = loadedTags
+				}
+			}
+		}
+	}
+
+	maxClimax := 0
+	for _, t := range checkTags {
+		matches := ClimaxTagRegex.FindStringSubmatch(strings.TrimSpace(t.Name))
+		if len(matches) > 1 {
+			if min, err := strconv.Atoi(matches[1]); err == nil && min > maxClimax {
+				maxClimax = min
+			}
+		}
+	}
+	s.ClimaxMinute = maxClimax
+	return maxClimax
+}
+
+// SyncAllClimaxScores resynchronizes climax_minute on all scenes with their tags in the database.
+func SyncAllClimaxScores(db *gorm.DB) error {
+	type SceneTagResult struct {
+		SceneID uint   `gorm:"column:scene_id"`
+		TagName string `gorm:"column:tag_name"`
+	}
+	var results []SceneTagResult
+	err := db.Table("scenes").
+		Select("scenes.id as scene_id, tags.name as tag_name").
+		Joins("JOIN scene_tags ON scene_tags.scene_id = scenes.id").
+		Joins("JOIN tags ON tags.id = scene_tags.tag_id").
+		Where("tags.name LIKE 'climax-%'").
+		Scan(&results).Error
+	if err != nil {
+		return err
+	}
+
+	climaxScores := make(map[uint]int)
+	for _, res := range results {
+		matches := ClimaxTagRegex.FindStringSubmatch(strings.TrimSpace(res.TagName))
+		if len(matches) > 1 {
+			if min, err := strconv.Atoi(matches[1]); err == nil && min > 0 {
+				if min > climaxScores[res.SceneID] {
+					climaxScores[res.SceneID] = min
+				}
+			}
+		}
+	}
+
+	for sceneID, min := range climaxScores {
+		if err := db.Table("scenes").Where("id = ? AND (climax_minute != ? OR climax_minute IS NULL)", sceneID, min).Update("climax_minute", min).Error; err != nil {
+			return err
+		}
+	}
+
+	// Reset scenes whose climax tags were removed
+	var scenesWithClimax []uint
+	if err := db.Table("scenes").Where("climax_minute > 0").Pluck("id", &scenesWithClimax).Error; err == nil {
+		for _, id := range scenesWithClimax {
+			if _, exists := climaxScores[id]; !exists {
+				_ = db.Table("scenes").Where("id = ?", id).Update("climax_minute", 0).Error
+			}
+		}
+	}
+
+	return nil
+}
 
 func (s *Scene) GetClimaxMinute() int {
 	if s == nil {

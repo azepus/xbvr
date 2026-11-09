@@ -1154,6 +1154,22 @@ func ProcessTagChanges(scene *models.Scene, tags *[]string, db *gorm.DB) {
 		for _, v := range newTags {
 			db.Model(&scene).Association("Tags").Append(&v)
 		}
+		scene.Tags = newTags
+	}
+
+	// Synchronize climax minute score from newTags
+	oldClimax := scene.ClimaxMinute
+	scene.SyncClimaxMinute(newTags)
+	if oldClimax != scene.ClimaxMinute {
+		_ = db.Model(&scene).Update("climax_minute", scene.ClimaxMinute).Error
+
+		scriptFiles, err := scene.GetScriptFiles()
+		if err == nil {
+			for _, f := range scriptFiles {
+				f.RefreshHeatmapCache = true
+				_ = db.Save(&f).Error
+			}
+		}
 	}
 }
 func (i SceneResource) getSceneAlternateSources(req *restful.Request, resp *restful.Response) {
